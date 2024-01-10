@@ -15,6 +15,7 @@
 #ifdef USE_INOTIFY
 #include <sys/poll.h>
 #include <sys/inotify.h>
+int ifd;
 #endif
 
 int uflag;			/* remove duplicates */
@@ -36,7 +37,6 @@ struct logfile {
 
 struct logfile *logs;
 int logcnt;
-int ifd;
 
 int spacestrcmp(const char *a, const char *b)
 {
