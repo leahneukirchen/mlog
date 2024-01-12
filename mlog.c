@@ -223,7 +223,7 @@ main(int argc, char *argv[])
                 case 'u': uflag++; break;
                 default:
 		usage:
-                        fputs("usage: mlog [-fu] FILES...\n", stderr);
+                        fputs("usage: mlog [-fsu] FILES...\n", stderr);
                         exit(2);
                 }
         }
