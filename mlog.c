@@ -105,36 +105,44 @@ strip(int i)
 	char *s = logs[i].line;
 	char *z = s + logs[i].linelen;
 
-	int d = 0;
-	int m = 0;
-	int t = 0;
-	int c = 0;
-	int p = 0;
-	int e = 0;
+	if ('0' <= s[0] && s[0] <= '9') { /* ISO */
+		int d = 0, m= 0, t = 0, c = 0, p = 0, e = 0;
 
-	while (s < z && *s != ' ') {
-		switch (*s++) {
-		case '-': m++; break;
-		case 'T': t++; break;
-		case ':': c++; break;
-		case '.': p++; break;
-		case '0':
-		case '1':
-		case '2':
-		case '3':
-		case '4':
-		case '5':
-		case '6':
-		case '7':
-		case '8':
-		case '9': d++; break;
-		default: e++;
+		// 2024-01-10T17:57:34.40282
+		// 2024-01-10_17:57:34.40282
+		while (s < z && *s != ' ') {
+			switch (*s++) {
+			case '-': m++; break;
+			case '_':
+			case 'T': t++; break;
+			case ':': c++; break;
+			case '.': p++; break;
+			case '0':
+			case '1':
+			case '2':
+			case '3':
+			case '4':
+			case '5':
+			case '6':
+			case '7':
+			case '8':
+			case '9': d++; break;
+			default: e++;
+			}
 		}
-	}
-
-	// 2024-01-10T17:57:34.40282
-	if (!(d == 19 && m == 2 && t == 1 && c == 2 && e == 0))
+		if (!(e == 0 && d == 19 && m == 2 && t == 1 && c == 2))
+			return;
+	} else if (s[0] == '@') { /* hex TAI */
+		// @4000000065a07a8e011726e4
+		size_t h = 0;
+		while (++s < z && *s != ' ')
+			if ((unsigned)*s-'0' < 10 || ((unsigned)*s|32)-'a' < 6)
+				h++;
+		if (h != 24)
+			return;
+	} else {
 		return;
+	}
 
 	char *b = s;
 
