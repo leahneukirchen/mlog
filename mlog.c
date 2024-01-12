@@ -13,7 +13,7 @@
 #include <unistd.h>
 
 #ifdef USE_INOTIFY
-#include <sys/poll.h>
+#include <poll.h>
 #include <sys/inotify.h>
 int ifd;
 #endif
@@ -157,6 +157,18 @@ strip(int i)
 	logs[i].linelen -= shrink;
 }
 
+static int
+ready(int i)
+{
+	if (!logs[i].line)
+		return 0;
+	if (logs[i].linelen == 0)
+		return 0;
+	if (logs[i].line[logs[i].linelen - 1] == '\n')
+		return 1;
+	return 0;
+}
+
 int
 nextline(int i)
 {
@@ -169,25 +181,51 @@ nextline(int i)
 			return 0;
 	}
 
+	char *line = 0;
+	size_t linealloc = 0;
+	ssize_t linelen = 0;
+	int append = 0;
+
+	if (!logs[i].line) {
+		;
+	} else if (logs[i].linelen == 0 || ready(i)) {
+		line = logs[i].line;
+		linealloc = logs[i].linealloc;
+	} else {
+		append = 1;
+	}
+
 	errno = 0;
-	ssize_t r = getline(&(logs[i].line), &(logs[i].linealloc), logs[i].file);
-	if (r >= 0) {		/* successful read */
-		logs[i].linelen = r;
-		if (sflag)
+	clearerr(logs[i].file);
+	linelen = getline(&line, &linealloc, logs[i].file);
+	if (linelen > 0) {	/* successful read */
+		if (append) {
+			if (logs[i].linealloc < logs[i].linelen + linelen) {
+				logs[i].linealloc += linelen;
+				logs[i].line = realloc(logs[i].line, logs[i].linealloc);
+			}
+			memcpy(logs[i].line + logs[i].linelen,
+			    line, linelen);
+			logs[i].linelen += linelen;
+			free(line);
+		} else {
+			logs[i].line = line;
+			logs[i].linealloc = linealloc;
+			logs[i].linelen = linelen;
+		}
+
+		if (sflag && ready(i))
 			strip(i);
 		return 1;
 	}
 
 	int e = errno;
-	free(logs[i].line);
-	logs[i].line = 0;
-	logs[i].linealloc = 0;
-
 	if (e == 0 && fflag) { /* hit EOF */
-		clearerr(logs[i].file);
+		if (!append)
+			logs[i].linelen = 0;
 
 		struct stat st;
-		r = stat(logs[i].path, &st);
+		int r = stat(logs[i].path, &st);
 		if (r < 0 ||
 		    st.st_dev != logs[i].st_dev ||
 		    st.st_ino != logs[i].st_ino ||
@@ -206,6 +244,11 @@ nextline(int i)
 	if (e != 0)
 		fprintf(stderr, "error reading '%s': %s\n",
 		    logs[i].path, strerror(e));
+
+	free(line);
+	logs[i].line = 0;
+	logs[i].linealloc = 0;
+
 	fclose(logs[i].file);
 	logs[i].file = 0;
 	return 0;
@@ -254,12 +297,12 @@ main(int argc, char *argv[])
 
 	while (1) {
 		for (int i = 0; i < logcnt; i++)
-			if (!logs[i].line)
+			if (!ready(i))
 				nextline(i);
 
 		int minidx = -1;
 		for (int i = 0; i < logcnt; i++) {
-			if (logs[i].line) {
+			if (ready(i)) {
 				minidx = i;
 				break;
 			}
@@ -273,20 +316,18 @@ main(int argc, char *argv[])
 			}
 		}
 		for (int i = minidx + 1; i < logcnt; i++) {
-			if (!logs[i].line)
+			if (!ready(i))
 				continue;
 			if (spacestrcmp(logs[minidx].line, logs[i].line) > 0)
 				minidx = i;
 		}
 
 		fwrite(logs[minidx].line, logs[minidx].linelen, 1, stdout);
-		if (logs[minidx].line[logs[minidx].linelen - 1] != '\n')
-			fputc('\n', stdout);
 
 		if (uflag) {
 			for (int i = 0; i < logcnt; i++) {
 				if (i != minidx &&
-				    logs[i].line &&
+				    ready(i) &&
 				    strcmp(logs[i].line, logs[minidx].line) == 0)
 					nextline(i);
 			}
@@ -294,4 +335,8 @@ main(int argc, char *argv[])
 
 		nextline(minidx);
 	}
+
+	for (int i = 0; i < logcnt; i++)
+		free(logs[i].line);
+	free(logs);
 }
