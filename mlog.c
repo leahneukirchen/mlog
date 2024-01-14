@@ -21,6 +21,7 @@ int ifd;
 int uflag;			/* remove duplicates */
 int fflag;			/* -f follow / -ff tail+follow */
 int sflag;			/* strip socklog prefix */
+int nflag;			/* number of lines at end to print */
 
 struct logfile {
 	char *path;
@@ -262,19 +263,68 @@ nextline(int i)
 	return 0;
 }
 
+void
+tail_line(FILE *file, int n)
+{
+	size_t page = 4096;
+
+	if (fseek(file, -page, SEEK_END) < 0) {
+		if (errno == EINVAL)
+			rewind(file);
+		else
+			return; /* can't seek */
+	}
+
+	int l = -1;		/* line ends with newline */
+	char buf[page];
+
+	while (1) {
+		clearerr(file);
+		long off = ftell(file);
+		ssize_t in = fread(buf, 1, page, file);
+
+		size_t i;
+		for (i = in; l < n && i > 0; i--) {
+			if (buf[i] == '\n')
+				l++;
+		}
+
+		if (l == n) {
+			fseek(file, off + i + 2, SEEK_SET);
+			break;
+		} else if (off == 0) {	/* file too short */
+			rewind(file);
+			break;
+		}
+
+		/* seek back more and count again */
+		if (fseek(file, -2*page, SEEK_CUR) < 0) {
+			if (errno == EINVAL) {
+				rewind(file);
+				break;
+			} else {
+				return;
+			}
+		}
+	}
+
+	clearerr(file);
+}
+
 int
 main(int argc, char *argv[])
 {
 	int opt;
 
-	while ((opt = getopt(argc, argv, "fsu")) != -1) {
+	while ((opt = getopt(argc, argv, "fn:su")) != -1) {
                 switch (opt) {
                 case 'f': fflag++; break;
+                case 'n': nflag = atoi(optarg); break;
                 case 's': sflag++; break;
                 case 'u': uflag++; break;
                 default:
 		usage:
-                        fputs("usage: mlog [-fsu] FILES...\n", stderr);
+                        fputs("usage: mlog [-fsu] [-n LINES] FILES...\n", stderr);
                         exit(2);
                 }
         }
@@ -301,6 +351,8 @@ main(int argc, char *argv[])
 			    strerror(errno));
 		if (fflag > 1 && logs[i].file)
 			fseek(logs[i].file, 0L, SEEK_END);
+		else if (nflag > 0 && logs[i].file)
+			tail_line(logs[i].file, nflag);
 	}
 
 	while (1) {
